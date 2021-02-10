@@ -1,0 +1,138 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Deyploys a Lambda Funtion with corresponding IAM roles and configures a monthyl CloudWatch event schedule
+
+Parameters:
+  SourceBucket:
+    Type: String
+    Default: org-billing-sourcecode
+    Description: Please provide a bucket name where the source code is stored.
+  
+  SourceCodeFile:
+    Type: String
+    Default: lambda_function.zip
+    Description: Please provide the name of the .zip file which contains the Lambda function.
+
+Resources: 
+  # Create IAM Policies
+  IAMLambdaBasicPolicy:
+    Type: AWS::IAM::Policy
+    Properties: 
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - 
+            Effect: 'Allow'
+            Action:
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+              - 'logs:CreateLogGroup'
+            Resource: 'arn:aws:logs:*:*:*'
+          -
+            Effect: 'Allow'
+            Action:
+              - 'ec2:DescribeInstances'
+              - 'cloudwatch:PutMetricData'
+            Resource: '*'
+      PolicyName: 'lambda_basic_role'
+      Roles:
+        - Ref: LambdaExecutionRole
+
+  IAMLambdaBillingPolicy:
+    Type: AWS::IAM::Policy
+    Properties: 
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - 
+            Effect: 'Allow'
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+              - 'organizations:ListTagsForResource'
+              - 'organizations:DescribeAccount'
+            Resource: 
+              - 'arn:aws:organizations::*:account/o-*/*'
+              - 'arn:aws:organizations::*:ou/o-*/ou-*'
+              - !Sub "arn:aws:s3:::${OutputBucket}/*"
+          -
+            Effect: 'Allow'
+            Action:
+              - 'organizations:ListAccounts'
+              - 'ce:GetCostAndUsage'
+            Resource: '*'
+      PolicyName: 'services_access_policy'
+      Roles:
+        - Ref: LambdaExecutionRole
+
+  # Create IAM Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: '/'
+
+  # Deploy Lambda Funtion
+  GetBillingInformation:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref SourceBucket
+        S3Key: !Ref SourceCodeFile
+      Timeout: 30
+      Runtime: python3.8
+      Environment:
+        Variables:
+          output_bucket: !Ref OutputBucket
+
+  # Create CloudWatch Event Schedule
+  ScheduledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: 'ScheduledRule'
+      #ScheduleExpression: 'rate(5 minutes)'
+      ScheduleExpression: 'cron(0 8 5 * ? *)'
+      State: 'ENABLED'
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - 'GetBillingInformation'
+              - 'Arn'
+          Id: 'GetBillingInformation'
+
+  PermissionForEventsToInvokeLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: 
+        Ref: GetBillingInformation
+      Action: 'lambda:InvokeFunction'
+      Principal: 'events.amazonaws.com'
+      SourceArn: 
+        Fn::GetAtt: 
+          - 'ScheduledRule'
+          - 'Arn'
+
+  # Create S3 Output Bucket to store the billing reports
+  OutputBucket:
+    Type: AWS::S3::Bucket
+
+Outputs:
+  OutputBucketName:
+    Description: This bucket is used to store the monthly reports
+    Value: !Ref OutputBucket
+  LambdaIAMRole:
+    Description: This IAM role has been created and contains all rights for the Lambda function to execute and access other services
+    Value: !Ref LambdaExecutionRole
+  LambdaFunction:
+    Description: Lambda function which contains the program logic
+    Value: !Ref GetBillingInformation
