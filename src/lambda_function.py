@@ -43,7 +43,7 @@ def get_dates():
 def get_accounts(dates):
 
     index = 0
-    indextags = 0
+    tagindex = 0
     result_dict = {}
     output_filename = 'costinformation-' + dates[0] +'.csv'
     
@@ -70,20 +70,35 @@ def get_accounts(dates):
                     ResourceId=my_accounts['Accounts'][index]['Id']
             )
             result_dict[str(index)]['Tags'] = {}
-            while indextags < len(id_tags['Tags']):
-                result_dict[str(index)]['Tags'][str(indextags)] = {}
-                result_dict[str(index)]['Tags'][str(indextags)]['Key'] = id_tags['Tags'][indextags]['Key']
-                result_dict[str(index)]['Tags'][str(indextags)]['Value'] = id_tags['Tags'][indextags]['Value']
 
-                if id_tags['Tags'][indextags]['Key'] == 'Cost Center':
-                    cost_center_value = id_tags['Tags'][indextags]['Value']
-                if id_tags['Tags'][indextags]['Key'] == 'Owner':
-                    owner_value = id_tags['Tags'][indextags]['Value']
-                if id_tags['Tags'][indextags]['Key'] == 'Project':
-                    project_value = id_tags['Tags'][indextags]['Value']
+            #Define tag variables to make sure they are there even if no corresponding tag exists
+            cost_center_value = ''
+            owner_value = ''
+            project_value = ''
 
-                indextags = indextags + 1
-            
+            while tagindex < len(id_tags['Tags']):
+                result_dict[str(index)]['Tags'][str(tagindex)] = {}
+                result_dict[str(index)]['Tags'][str(tagindex)]['Key'] = id_tags['Tags'][tagindex]['Key']
+                result_dict[str(index)]['Tags'][str(tagindex)]['Value'] = id_tags['Tags'][tagindex]['Value']
+
+                if id_tags['Tags'][tagindex]['Key'] == 'Cost Center':
+                    cost_center_value = id_tags['Tags'][tagindex]['Value']
+                    tagindex = tagindex + 1
+                    continue
+                    
+                if id_tags['Tags'][tagindex]['Key'] == 'Owner':
+                    owner_value = id_tags['Tags'][tagindex]['Value']
+                    tagindex = tagindex + 1
+                    continue
+
+                if id_tags['Tags'][tagindex]['Key'] == 'Project':
+                    project_value = id_tags['Tags'][tagindex]['Value']
+                    tagindex = tagindex + 1
+                    continue
+
+                #If none of the above tags have been found in the current index, increment and seach in next index
+                tagindex = tagindex + 1
+
             #Call for cost on each AWS Account
             account_cost = my_ce.get_cost_and_usage(
                 TimePeriod={
@@ -117,7 +132,7 @@ def get_accounts(dates):
             #Write line to the CSV file
             writer.writerow({'AccountID': my_accounts['Accounts'][index]['Id'], 'Email': my_accounts['Accounts'][index]['Email'], 'Name': my_accounts['Accounts'][index]['Name'], 'Status': my_accounts['Accounts'][index]['Status'], 'Cost': account_cost['ResultsByTime'][0]['Total']['BlendedCost']['Amount'], 'StartDate': dates[0], 'EndDate': dates[1], 'Project': project_value, 'Cost Center': cost_center_value, 'Owner': owner_value})
 
-            indextags = 0
+            tagindex = 0
             index = index + 1
 
     #Write CSV file to S3        

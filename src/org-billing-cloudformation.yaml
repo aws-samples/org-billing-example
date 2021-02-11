@@ -4,12 +4,12 @@ Description: Deyploys a Lambda Funtion with corresponding IAM roles and configur
 Parameters:
   SourceBucket:
     Type: String
-    Default: org-billing-sourcecode
+    Default: cvolkmer-public-blogs
     Description: Please provide a bucket name where the source code is stored.
   
   SourceCodeFile:
     Type: String
-    Default: lambda_function.zip
+    Default: org-billing-example/org-billing-lambda-function.zip
     Description: Please provide the name of the .zip file which contains the Lambda function.
 
 Resources: 
