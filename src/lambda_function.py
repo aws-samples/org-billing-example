@@ -3,102 +3,44 @@ import boto3
 import logging
 import csv
 import os
-from datetime import date, datetime
-
+from datetime import date
+from dateutil.relativedelta import relativedelta
 # Configure logger
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
 #Instansiate clients
 my_ce = boto3.client('ce')
 my_org = boto3.client('organizations')
 my_s3 = boto3.resource('s3')
-
 #Get S3 Bucketname
 bucket_name=os.getenv('output_bucket')
-
+#Get Cost Reporting Tags
+cost_reporting_tags = {'Cost Center','Project','Owner'}
 #Determine current month and year
 def get_dates():
-
-    today = date.today()
-    #today = date(2020,1,13)
-    
-    if today.month == 1:
-        one_month_ago = today.replace(year=today.year - 1, month=12)
-    else:
-        extra_days = 0
-        while True:
-            try:
-                one_month_ago = today.replace(month=today.month - 1, day=today.day - extra_days)
-                break
-            except ValueError:
-                extra_days += 1
-    
-    start_date = one_month_ago.strftime('%Y-%m' + '-01')
-    end_date = today.strftime('%Y-%m' + '-01')
-    
+    start_date = (date.today() + relativedelta(months=-1)).replace(day=1).strftime('%Y-%m-%d')
+    end_date = date.today().replace(day=1).strftime('%Y-%m-%d')
     return[start_date, end_date]
-
 #Gather account details
 def get_accounts(dates):
-
-    index = 0
-    tagindex = 0
     result_dict = {}
-    output_filename = 'costinformation-' + dates[0] +'.csv'
-    
+    output_filename = 'costinformation-{}.csv'.format(dates[0])
     #Get all AWS Accounts from AWS Organizations
     my_accounts = my_org.list_accounts() 
-
+    result_dict = {}
     #Instanciate the output file
     with open('/tmp/results.csv', 'w+', newline='') as csvfile:
-        fieldnames = ['AccountID', 'Email', 'Name', 'Status', 'Cost', 'StartDate', 'EndDate', 'Project', 'Cost Center', 'Owner']
+        fieldnames = ['AccountID', 'Email', 'Name', 'Status', 'Cost', 'StartDate', 'EndDate']
+        fieldnames += cost_reporting_tags
         writer = csv.DictWriter(csvfile, delimiter=',', fieldnames=fieldnames)
         writer.writeheader()
-
-        while index < len(my_accounts['Accounts']):
-
+        for account in my_accounts['Accounts']:
+            account_dict = {}
             #Write basic headers to the CSV file
-            result_dict[str(index)] = {}
-            result_dict[str(index)]['AccountID'] = my_accounts['Accounts'][index]['Id']
-            result_dict[str(index)]['Email'] = my_accounts['Accounts'][index]['Email']
-            result_dict[str(index)]['Name'] = my_accounts['Accounts'][index]['Name']
-            result_dict[str(index)]['Status'] = my_accounts['Accounts'][index]['Status']
-
-            #Call for tags on each AWS Account in AWS Organizations          
-            id_tags = my_org.list_tags_for_resource(
-                    ResourceId=my_accounts['Accounts'][index]['Id']
-            )
-            result_dict[str(index)]['Tags'] = {}
-
-            #Define tag variables to make sure they are there even if no corresponding tag exists
-            cost_center_value = ''
-            owner_value = ''
-            project_value = ''
-
-            while tagindex < len(id_tags['Tags']):
-                result_dict[str(index)]['Tags'][str(tagindex)] = {}
-                result_dict[str(index)]['Tags'][str(tagindex)]['Key'] = id_tags['Tags'][tagindex]['Key']
-                result_dict[str(index)]['Tags'][str(tagindex)]['Value'] = id_tags['Tags'][tagindex]['Value']
-
-                if id_tags['Tags'][tagindex]['Key'] == 'Cost Center':
-                    cost_center_value = id_tags['Tags'][tagindex]['Value']
-                    tagindex = tagindex + 1
-                    continue
-                    
-                if id_tags['Tags'][tagindex]['Key'] == 'Owner':
-                    owner_value = id_tags['Tags'][tagindex]['Value']
-                    tagindex = tagindex + 1
-                    continue
-
-                if id_tags['Tags'][tagindex]['Key'] == 'Project':
-                    project_value = id_tags['Tags'][tagindex]['Value']
-                    tagindex = tagindex + 1
-                    continue
-
-                #If none of the above tags have been found in the current index, increment and seach in next index
-                tagindex = tagindex + 1
-
+            account_dict['AccountID'] = account['Id']
+            account_dict['Email'] = account['Email']
+            account_dict['Name'] = account['Name']
+            account_dict['Status'] = account['Status']
             #Call for cost on each AWS Account
             account_cost = my_ce.get_cost_and_usage(
                 TimePeriod={
@@ -110,7 +52,7 @@ def get_accounts(dates):
                     "And": [{
                         "Dimensions": {
                             "Key": "LINKED_ACCOUNT",
-                            "Values": [my_accounts['Accounts'][index]['Id']]
+                            "Values": [account['Id']]
                         }
                     },
                     {
@@ -125,32 +67,33 @@ def get_accounts(dates):
                 Metrics=[
                     'BlendedCost',
                 ]
-            )        
-            result_dict[str(index)]['Cost'] = {}
-            result_dict[str(index)]['Cost'] = account_cost['ResultsByTime'][0]['Total']['BlendedCost']
-
+            )
+            account_dict['Cost'] = account_cost['ResultsByTime'][0]['Total']['BlendedCost']['Amount']
+            account_dict['StartDate'] = dates[0]
+            account_dict['EndDate'] = dates[1]    
+            tags = {}
+            for crt in cost_reporting_tags:
+              tags[crt] = ''
+            #Call for tags on each AWS Account in AWS Organizations          
+            id_tags = my_org.list_tags_for_resource(ResourceId=account['Id'])
+            for tag in id_tags['Tags']:
+              if tag['Key'] in cost_reporting_tags:
+                tags[tag['Key']] = tag['Value']
+            account_dict.update(tags)
+            result_dict[account['Id']] = account_dict
             #Write line to the CSV file
-            writer.writerow({'AccountID': my_accounts['Accounts'][index]['Id'], 'Email': my_accounts['Accounts'][index]['Email'], 'Name': my_accounts['Accounts'][index]['Name'], 'Status': my_accounts['Accounts'][index]['Status'], 'Cost': account_cost['ResultsByTime'][0]['Total']['BlendedCost']['Amount'], 'StartDate': dates[0], 'EndDate': dates[1], 'Project': project_value, 'Cost Center': cost_center_value, 'Owner': owner_value})
-
-            tagindex = 0
-            index = index + 1
-
+            writer.writerow(account_dict)
     #Write CSV file to S3        
     my_s3.Object(bucket_name, output_filename).upload_file('/tmp/results.csv')  
-        
     return [result_dict, output_filename]
-
 #Main function
 def lambda_handler(event, context):
-    
     #Get the start- and end date within the current month    
     dates = get_dates()
-    
     #Pass date information and do the account details processing
     account_data = get_accounts(dates)
     logger.info('Accounts Information:' + json.dumps(account_data[0], indent=2))
     logger.info('Output Filename:' + json.dumps(account_data[1], indent=2))
-
     return {
         'statusCode': 200,
         'body': json.dumps('Billing file has been written to: ' + account_data[1])
