@@ -37,17 +37,20 @@ This example solution uses 3 AWS account tags in order to work. You have to add 
     - “Project”
     - “Owner”
 ![Account tags in AWS Organizations](pict/aws_organizations_tags.png)
-
 4. Repeat the previous step for other accounts
 5. Leave AWS Organizations and go back to the AWS Console
 
-Please note that these tags are examples. You can modify and delete/add more tags to your accounts but you’ve to modify the Lambda function code as well if you would like to capture them in the output file.
+Please note that these tags are examples. You can modify and delete/add more tags to your accounts but you’ve to modify the Lambda function code as well if you would like to capture them in the output file. Per default, the Lambda function adds all tags specified in the code regardless if they're having a value at the corresponding AWS account in AWS Organizations or not. You can add/modify or remove tags in your output file by changing the corresponding section in the [Lambda function](src/lambda_function.py).
+
+```python
+cost_reporting_tags = {'Cost Center','Project','Owner'}
+```
 ## Deployment
 NOTE: The CloudFormation template provided will create all resources necessary. It does not create the Amazon S3 bucket needed to store the AWS Lambda function source code. Please make sure you have this created before you proceed.
 
 Let's go aheand and walk through the steps needed in order to deploy this solution. Please clone this repository.
 ### Upload contents to Amazon S3
-In order to deploy the solution, you need to upload the AWS CloudFormation template and the AWS Lambda function code to Amazon S3. Please replace the `<your-S3-Bucket-name>`secsions with your bucket name.
+In order to deploy the solution, you need to upload the AWS CloudFormation template and the AWS Lambda function code to Amazon S3. Please replace the `<your-S3-Bucket-name>` sections with your bucket name.
 
 1. Create a .ZIP file that contains the AWS Lambda function from this repository.
     ```bash
