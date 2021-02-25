@@ -25,8 +25,6 @@ def get_dates():
 def get_accounts(dates):
     result_dict = {}
     output_filename = 'costinformation-{}.csv'.format(dates[0])
-    #Get all AWS Accounts from AWS Organizations
-    my_accounts = my_org.list_accounts() 
     result_dict = {}
     #Instanciate the output file
     with open('/tmp/results.csv', 'w+', newline='') as csvfile:
@@ -34,55 +32,59 @@ def get_accounts(dates):
         fieldnames += cost_reporting_tags
         writer = csv.DictWriter(csvfile, delimiter=',', fieldnames=fieldnames)
         writer.writeheader()
-        for account in my_accounts['Accounts']:
-            account_dict = {}
-            #Write basic headers to the CSV file
-            account_dict['AccountID'] = account['Id']
-            account_dict['Email'] = account['Email']
-            account_dict['Name'] = account['Name']
-            account_dict['Status'] = account['Status']
-            #Call for cost on each AWS Account
-            account_cost = my_ce.get_cost_and_usage(
-                TimePeriod={
-                    'Start': str(dates[0]),
-                    'End': str(dates[1])
-                },
-                Granularity='MONTHLY',
-                Filter = {
-                    "And": [{
-                        "Dimensions": {
-                            "Key": "LINKED_ACCOUNT",
-                            "Values": [account['Id']]
-                        }
+        #Get all AWS Accounts from AWS Organizations
+        accounts_paginator = my_org.get_paginator('list_accounts')
+        accounts_pages = accounts_paginator.paginate()
+        for account_page in accounts_pages:
+            for account in account_page['Accounts']:
+                account_dict = {}
+                #Write basic headers to the CSV file
+                account_dict['AccountID'] = account['Id']
+                account_dict['Email'] = account['Email']
+                account_dict['Name'] = account['Name']
+                account_dict['Status'] = account['Status']
+                #Call for cost on each AWS Account
+                account_cost = my_ce.get_cost_and_usage(
+                    TimePeriod={
+                        'Start': str(dates[0]),
+                        'End': str(dates[1])
                     },
-                    {
-                        "Not": {
+                    Granularity='MONTHLY',
+                    Filter = {
+                        "And": [{
                             "Dimensions": {
-                                "Key": "RECORD_TYPE",
-                                "Values": ["Credit", "Refund"]
+                                "Key": "LINKED_ACCOUNT",
+                                "Values": [account['Id']]
                             }
-                        }
-                    }]
-                },
-                Metrics=[
-                    'BlendedCost',
-                ]
-            )
-            account_dict['Cost'] = account_cost['ResultsByTime'][0]['Total']['BlendedCost']['Amount']
-            account_dict['StartDate'] = dates[0]
-            account_dict['EndDate'] = dates[1]    
-            tags = {}
-            for crt in cost_reporting_tags:
-              tags[crt] = ''
-            #Call for tags on each AWS Account in AWS Organizations          
-            id_tags = my_org.list_tags_for_resource(ResourceId=account['Id'])
-            for tag in id_tags['Tags']:
-              if tag['Key'] in cost_reporting_tags:
-                tags[tag['Key']] = tag['Value']
-            account_dict.update(tags)
-            result_dict[account['Id']] = account_dict
-            #Write line to the CSV file
-            writer.writerow(account_dict)
+                        },
+                        {
+                            "Not": {
+                                "Dimensions": {
+                                    "Key": "RECORD_TYPE",
+                                    "Values": ["Credit", "Refund"]
+                                }
+                            }
+                        }]
+                    },
+                    Metrics=[
+                        'BlendedCost',
+                    ]
+                )
+                account_dict['Cost'] = account_cost['ResultsByTime'][0]['Total']['BlendedCost']['Amount']
+                account_dict['StartDate'] = dates[0]
+                account_dict['EndDate'] = dates[1]    
+                tags = {}
+                for crt in cost_reporting_tags:
+                    tags[crt] = ''
+                #Call for tags on each AWS Account in AWS Organizations          
+                id_tags = my_org.list_tags_for_resource(ResourceId=account['Id'])
+                for tag in id_tags['Tags']:
+                    if tag['Key'] in cost_reporting_tags:
+                        tags[tag['Key']] = tag['Value']
+                account_dict.update(tags)
+                result_dict[account['Id']] = account_dict
+                #Write line to the CSV file
+                writer.writerow(account_dict)
     #Write CSV file to S3        
     my_s3.Object(bucket_name, output_filename).upload_file('/tmp/results.csv')  
     return [result_dict, output_filename]
