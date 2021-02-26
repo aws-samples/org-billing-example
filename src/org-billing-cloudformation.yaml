@@ -88,7 +88,8 @@ Resources:
       Code:
         S3Bucket: !Ref SourceBucket
         S3Key: !Ref SourceCodeFile
-      Timeout: 30
+      Timeout: 120
+      MemorySize: 512
       Runtime: python3.8
       Environment:
         Variables:
