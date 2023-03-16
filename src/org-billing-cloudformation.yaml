@@ -126,6 +126,11 @@ Resources:
   # Create S3 Output Bucket to store the billing reports
   OutputBucket:
     Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
 
 Outputs:
   OutputBucketName:
